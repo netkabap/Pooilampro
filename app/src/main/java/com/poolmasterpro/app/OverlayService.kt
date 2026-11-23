@@ -24,19 +24,24 @@ class OverlayService : Service() {
     private lateinit var aimView: PoolAimView
     private lateinit var params: WindowManager.LayoutParams
 
-    private var topBarWindow: LinearLayout? = null
-    private var modeToggleBtn: Button? = null
+    private var hubBtnWindow: Button? = null
+    private var hubBtnParams: WindowManager.LayoutParams? = null
 
-    private var lineBarWindow: LinearLayout? = null
+    private var menuPanelWindow: LinearLayout? = null
+    private var menuPanelParams: WindowManager.LayoutParams? = null
+
+    private var modeToggleBtn: Button? = null
     private var btn2Line: Button? = null
     private var btn3Line: Button? = null
-    private var btnUnlimited: Button? = null
+    private var btn5Line: Button? = null
 
     private var cueKnobView: KnobView? = null
     private var aimKnobView: KnobView? = null
 
     private var isPlayMode = false
-    private var lineMode = 3
+    private var isMenuOpen = false
+    private var lineMode = 3 // 2 = 2L, 3 = 3L, 5 = 5L
+
     private val knobSize = 120
     private val knobHalf = knobSize / 2
 
@@ -59,8 +64,7 @@ class OverlayService : Service() {
         rootLayout.addView(aimView)
         windowManager.addView(rootLayout, params)
 
-        showTopControlBar()
-        showLineModeBar()
+        showSonoBhaiButton()
     }
 
     private fun overlayTypeFlag(): Int {
@@ -79,10 +83,11 @@ class OverlayService : Service() {
         }
     }
 
-    private fun showTopControlBar() {
-        removeTopControlBar()
+    private fun showSonoBhaiButton() {
+        removeSonoBhaiButton()
+        removeMenuPanel()
 
-        val barParams = WindowManager.LayoutParams(
+        val bParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayTypeFlag(),
@@ -91,145 +96,27 @@ class OverlayService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = 24
-            y = 70
+            y = 75
         }
 
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(10, 8, 10, 8)
-            background = makePillBg(0xCC1B1F24.toInt())
-        }
-
-        val toggleBtn = Button(this).apply {
-            text = if (isPlayMode) "EDIT BORDERS" else "PLAY MODE"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            setPadding(22, 8, 22, 8)
-            background = makePillBg(if (isPlayMode) 0xEEDD6600.toInt() else 0xEE009955.toInt())
-            setOnClickListener {
-                if (isPlayMode) enterEditMode() else enterPlayMode()
-            }
-        }
-
-        val offBtn = Button(this).apply {
-            text = "OFF"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            setPadding(20, 8, 20, 8)
-            background = makePillBg(0xEED92626.toInt())
-            setOnClickListener {
-                stopSelf()
-            }
-        }
-
-        bar.addView(toggleBtn)
-        bar.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(10, 1) })
-        bar.addView(offBtn)
-
-        attachDragToView(bar) { dx, dy ->
-            barParams.x = max(0, barParams.x + dx.toInt())
-            barParams.y = max(0, barParams.y + dy.toInt())
-            try {
-                windowManager.updateViewLayout(bar, barParams)
-            } catch (_: Exception) {
-            }
-        }
-
-        modeToggleBtn = toggleBtn
-        topBarWindow = bar
-        windowManager.addView(bar, barParams)
-    }
-
-    private fun showLineModeBar() {
-        removeLineModeBar()
-
-        val barParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            overlayTypeFlag(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 24
-            y = 165
-        }
-
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(10, 8, 10, 8)
-            background = makePillBg(0xCC1B1F24.toInt())
-        }
-
-        val b2 = Button(this).apply {
-            text = "2L"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            setPadding(20, 8, 20, 8)
-            setOnClickListener { setLineMode(2) }
-        }
-
-        val b3 = Button(this).apply {
-            text = "3L"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            setPadding(20, 8, 20, 8)
-            setOnClickListener { setLineMode(3) }
-        }
-
-        val bUnlim = Button(this).apply {
-            text = "∞"
+        val btn = Button(this).apply {
+            text = "SonoBhai"
             textSize = 12f
             setTextColor(Color.WHITE)
-            setPadding(22, 8, 22, 8)
-            setOnClickListener { setLineMode(99) }
-        }
-
-        bar.addView(b2)
-        bar.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8, 1) })
-        bar.addView(b3)
-        bar.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8, 1) })
-        bar.addView(bUnlim)
-
-        attachDragToView(bar) { dx, dy ->
-            barParams.x = max(0, barParams.x + dx.toInt())
-            barParams.y = max(0, barParams.y + dy.toInt())
-            try {
-                windowManager.updateViewLayout(bar, barParams)
-            } catch (_: Exception) {
+            setPadding(24, 10, 24, 10)
+            background = makePillBg(0xEE111827.toInt())
+            setOnClickListener {
+                toggleMenuPanel()
             }
         }
 
-        btn2Line = b2
-        btn3Line = b3
-        btnUnlimited = bUnlim
-        lineBarWindow = bar
-
-        refreshLineModeButtons()
-        windowManager.addView(bar, barParams)
-    }
-
-    private fun setLineMode(mode: Int) {
-        lineMode = mode
-        aimView.lineCountSetting = mode
-        aimView.invalidate()
-        refreshLineModeButtons()
-    }
-
-    private fun refreshLineModeButtons() {
-        btn2Line?.background = makePillBg(if (lineMode == 2) 0xFF0088FF.toInt() else 0x88333A42.toInt())
-        btn3Line?.background = makePillBg(if (lineMode == 3) 0xFF00AA55.toInt() else 0x88333A42.toInt())
-        btnUnlimited?.background = makePillBg(if (lineMode == 99) 0xFFDD5500.toInt() else 0x88333A42.toInt())
-    }
-
-    private fun attachDragToView(targetView: View, onDelta: (Float, Float) -> Unit) {
         var lastRawX = 0f
         var lastRawY = 0f
         var startRawX = 0f
         var startRawY = 0f
         var dragging = false
 
-        targetView.setOnTouchListener { _, event ->
+        btn.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     startRawX = event.rawX
@@ -248,7 +135,15 @@ class OverlayService : Service() {
                     lastRawX = event.rawX
                     lastRawY = event.rawY
                     if (dragging) {
-                        onDelta(dx, dy)
+                        bParams.x = max(0, bParams.x + dx.toInt())
+                        bParams.y = max(0, bParams.y + dy.toInt())
+                        try {
+                            windowManager.updateViewLayout(btn, bParams)
+                        } catch (_: Exception) {
+                        }
+                        if (isMenuOpen) {
+                            syncMenuPosition()
+                        }
                         true
                     } else {
                         false
@@ -262,6 +157,147 @@ class OverlayService : Service() {
                 else -> false
             }
         }
+
+        hubBtnParams = bParams
+        hubBtnWindow = btn
+        windowManager.addView(btn, bParams)
+    }
+
+    private fun toggleMenuPanel() {
+        if (isMenuOpen) {
+            isMenuOpen = false
+            removeMenuPanel()
+        } else {
+            isMenuOpen = true
+            showMenuPanel()
+        }
+    }
+
+    private fun syncMenuPosition() {
+        val bParams = hubBtnParams ?: return
+        val mParams = menuPanelParams ?: return
+        val panel = menuPanelWindow ?: return
+
+        mParams.x = max(0, bParams.x)
+        mParams.y = max(0, bParams.y + 82)
+        try {
+            windowManager.updateViewLayout(panel, mParams)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun showMenuPanel() {
+        removeMenuPanel()
+        val bParams = hubBtnParams ?: return
+
+        val mParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayTypeFlag(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = max(0, bParams.x)
+            y = max(0, bParams.y + 82)
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 10, 12, 10)
+            background = makePillBg(0xDD1B1F24.toInt())
+        }
+
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        val toggleBtn = Button(this).apply {
+            text = if (isPlayMode) "EDIT BORDERS" else "PLAY MODE"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setPadding(20, 8, 20, 8)
+            background = makePillBg(if (isPlayMode) 0xEEDD6600.toInt() else 0xEE009955.toInt())
+            setOnClickListener {
+                if (isPlayMode) enterEditMode() else enterPlayMode()
+            }
+        }
+
+        val offBtn = Button(this).apply {
+            text = "OFF"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setPadding(20, 8, 20, 8)
+            background = makePillBg(0xEED92626.toInt())
+            setOnClickListener {
+                stopSelf()
+            }
+        }
+
+        row1.addView(toggleBtn)
+        row1.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(10, 1) })
+        row1.addView(offBtn)
+
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 10, 0, 0)
+        }
+
+        val b2 = Button(this).apply {
+            text = "2L"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setPadding(20, 8, 20, 8)
+            setOnClickListener { setLineMode(2) }
+        }
+
+        val b3 = Button(this).apply {
+            text = "3L"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setPadding(20, 8, 20, 8)
+            setOnClickListener { setLineMode(3) }
+        }
+
+        val b5 = Button(this).apply {
+            text = "5L"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setPadding(20, 8, 20, 8)
+            setOnClickListener { setLineMode(5) }
+        }
+
+        row2.addView(b2)
+        row2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8, 1) })
+        row2.addView(b3)
+        row2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8, 1) })
+        row2.addView(b5)
+
+        container.addView(row1)
+        container.addView(row2)
+
+        modeToggleBtn = toggleBtn
+        btn2Line = b2
+        btn3Line = b3
+        btn5Line = b5
+        menuPanelParams = mParams
+        menuPanelWindow = container
+
+        refreshLineModeButtons()
+        windowManager.addView(container, mParams)
+    }
+
+    private fun setLineMode(mode: Int) {
+        lineMode = mode
+        aimView.lineCountSetting = mode
+        aimView.invalidate()
+        refreshLineModeButtons()
+    }
+
+    private fun refreshLineModeButtons() {
+        btn2Line?.background = makePillBg(if (lineMode == 2) 0xFF0088FF.toInt() else 0x88333A42.toInt())
+        btn3Line?.background = makePillBg(if (lineMode == 3) 0xFF00AA55.toInt() else 0x88333A42.toInt())
+        btn5Line?.background = makePillBg(if (lineMode == 5) 0xFFDD5500.toInt() else 0x88333A42.toInt())
     }
 
     private fun enterPlayMode() {
@@ -383,34 +419,37 @@ class OverlayService : Service() {
         aimKnobView = null
     }
 
-    private fun removeTopControlBar() {
-        topBarWindow?.let {
+    private fun removeMenuPanel() {
+        menuPanelWindow?.let {
             try {
                 windowManager.removeView(it)
             } catch (_: Exception) {
             }
         }
-        topBarWindow = null
+        menuPanelWindow = null
+        menuPanelParams = null
         modeToggleBtn = null
-    }
-
-    private fun removeLineModeBar() {
-        lineBarWindow?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {
-            }
-        }
-        lineBarWindow = null
         btn2Line = null
         btn3Line = null
-        btnUnlimited = null
+        btn5Line = null
+    }
+
+    private fun removeSonoBhaiButton() {
+        hubBtnWindow?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
+        hubBtnWindow = null
+        hubBtnParams = null
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        removeTopControlBar()
-        removeLineModeBar()
+        isMenuOpen = false
+        removeMenuPanel()
+        removeSonoBhaiButton()
         removeLiveAimKnobs()
         if (::rootLayout.isInitialized) {
             try {
@@ -511,8 +550,14 @@ class OverlayService : Service() {
             isAntiAlias = true
         }
 
-        private val extraBouncePaint = Paint().apply {
+        private val line4Paint = Paint().apply {
             color = 0xEEFF55FF.toInt()
+            strokeWidth = 4f
+            isAntiAlias = true
+        }
+
+        private val line5Paint = Paint().apply {
+            color = 0xEEFF9900.toInt()
             strokeWidth = 4f
             isAntiAlias = true
         }
@@ -581,175 +626,3 @@ class OverlayService : Service() {
                     PointF(leftWall, topWall), PointF(midX, topWall), PointF(rightWall, topWall),
                     PointF(leftWall, bottomWall), PointF(midX, bottomWall), PointF(rightWall, bottomWall)
                 )
-                for (p in pockets) {
-                    canvas.drawCircle(p.x, p.y, 18f, pocketPaint)
-                }
-            }
-
-            canvas.drawLine(cueX, cueY, aimX, aimY, line1Paint)
-
-            val bounceCount = when (lineCountSetting) {
-                2 -> 1
-                3 -> 2
-                else -> 30
-            }
-            drawReflectionsFromAim(canvas, aimX, aimY, aimX - cueX, aimY - cueY, bounceCount)
-
-            if (!isPlayMode) {
-                drawHandle(canvas, cueX, cueY, 26f, 0xEEFFFFFF.toInt())
-                drawHandle(canvas, aimX, aimY, 26f, 0xEE00FF55.toInt())
-
-                drawHandle(canvas, leftWall, topWall, 24f, 0xEE0088FF.toInt())
-                drawHandle(canvas, rightWall, topWall, 24f, 0xEE0088FF.toInt())
-                drawHandle(canvas, leftWall, bottomWall, 24f, 0xEE0088FF.toInt())
-                drawHandle(canvas, rightWall, bottomWall, 24f, 0xEE0088FF.toInt())
-            }
-        }
-
-        private fun drawHandle(canvas: Canvas, x: Float, y: Float, radius: Float, fillColor: Int) {
-            handlePaint.color = fillColor
-            canvas.drawCircle(x, y, radius, handlePaint)
-            canvas.drawCircle(x, y, radius, handleBorderPaint)
-        }
-
-        private fun drawReflectionsFromAim(
-            canvas: Canvas,
-            startX: Float,
-            startY: Float,
-            dirX: Float,
-            dirY: Float,
-            bounces: Int
-        ) {
-            if (bounces <= 0) return
-
-            var x = startX.coerceIn(leftWall, rightWall)
-            var y = startY.coerceIn(topWall, bottomWall)
-            var vx = dirX
-            var vy = dirY
-
-            val len = hypot(vx, vy)
-            if (len < 0.001f) return
-            vx /= len
-            vy /= len
-
-            for (i in 0 until bounces) {
-                var tMin = Float.MAX_VALUE
-                var hitVertical = false
-
-                if (vx > 0.0001f) {
-                    val t = (rightWall - x) / vx
-                    if (t > 0.5f && t < tMin) {
-                        tMin = t
-                        hitVertical = true
-                    }
-                } else if (vx < -0.0001f) {
-                    val t = (leftWall - x) / vx
-                    if (t > 0.5f && t < tMin) {
-                        tMin = t
-                        hitVertical = true
-                    }
-                }
-
-                if (vy > 0.0001f) {
-                    val t = (bottomWall - y) / vy
-                    if (t > 0.5f && t < tMin) {
-                        tMin = t
-                        hitVertical = false
-                    }
-                } else if (vy < -0.0001f) {
-                    val t = (topWall - y) / vy
-                    if (t > 0.5f && t < tMin) {
-                        tMin = t
-                        hitVertical = false
-                    }
-                }
-
-                if (tMin == Float.MAX_VALUE) break
-
-                val nextX = (x + vx * tMin).coerceIn(leftWall, rightWall)
-                val nextY = (y + vy * tMin).coerceIn(topWall, bottomWall)
-
-                val paintForBounce = when (i) {
-                    0 -> line2Paint
-                    1 -> line3Paint
-                    else -> extraBouncePaint
-                }
-
-                canvas.drawLine(x, y, nextX, nextY, paintForBounce)
-
-                x = nextX
-                y = nextY
-                if (hitVertical) vx = -vx else vy = -vy
-            }
-        }
-
-        override fun onTouchEvent(event: MotionEvent): Boolean {
-            if (isPlayMode) return false
-
-            val tx = event.x
-            val ty = event.y
-            val touchRadius = 75f
-
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    activeHandle = when {
-                        hypot(tx - cueX, ty - cueY) < touchRadius -> 1
-                        hypot(tx - aimX, ty - aimY) < touchRadius -> 2
-                        hypot(tx - leftWall, ty - topWall) < touchRadius -> 3
-                        hypot(tx - rightWall, ty - topWall) < touchRadius -> 4
-                        hypot(tx - leftWall, ty - bottomWall) < touchRadius -> 5
-                        hypot(tx - rightWall, ty - bottomWall) < touchRadius -> 6
-                        else -> 0
-                    }
-                    return activeHandle != 0
-                }
-
-                MotionEvent.ACTION_MOVE -> {
-                    val w = width.toFloat()
-                    val h = height.toFloat()
-                    val minBoxSize = 140f
-
-                    when (activeHandle) {
-                        1 -> {
-                            cueX = tx.coerceIn(leftWall, rightWall)
-                            cueY = ty.coerceIn(topWall, bottomWall)
-                        }
-                        2 -> {
-                            aimX = tx.coerceIn(leftWall, rightWall)
-                            aimY = ty.coerceIn(topWall, bottomWall)
-                        }
-                        3 -> {
-                            leftWall = tx.coerceIn(20f, rightWall - minBoxSize)
-                            topWall = ty.coerceIn(110f, bottomWall - minBoxSize)
-                        }
-                        4 -> {
-                            rightWall = tx.coerceIn(leftWall + minBoxSize, max(leftWall + minBoxSize, w - 20f))
-                            topWall = ty.coerceIn(110f, bottomWall - minBoxSize)
-                        }
-                        5 -> {
-                            leftWall = tx.coerceIn(20f, rightWall - minBoxSize)
-                            bottomWall = ty.coerceIn(topWall + minBoxSize, max(topWall + minBoxSize, h - 20f))
-                        }
-                        6 -> {
-                            rightWall = tx.coerceIn(leftWall + minBoxSize, max(leftWall + minBoxSize, w - 20f))
-                            bottomWall = ty.coerceIn(topWall + minBoxSize, max(topWall + minBoxSize, h - 20f))
-                        }
-                    }
-
-                    cueX = cueX.coerceIn(leftWall, rightWall)
-                    cueY = cueY.coerceIn(topWall, bottomWall)
-                    aimX = aimX.coerceIn(leftWall, rightWall)
-                    aimY = aimY.coerceIn(topWall, bottomWall)
-
-                    invalidate()
-                    return true
-                }
-
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    activeHandle = 0
-                }
-            }
-            return super.onTouchEvent(event)
-        }
-    }
-}
