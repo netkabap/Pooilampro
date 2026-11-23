@@ -40,7 +40,7 @@ class OverlayService : Service() {
 
     private var isPlayMode = false
     private var isMenuOpen = false
-    private var lineMode = 3 // 2 = 2L, 3 = 3L, 5 = 5L
+    private var lineMode = 3
 
     private val knobSize = 120
     private val knobHalf = knobSize / 2
@@ -507,8 +507,7 @@ class OverlayService : Service() {
             return super.onTouchEvent(event)
         }
     }
-
-    inner class PoolAimView(context: Context) : View(context) {
+        inner class PoolAimView(context: Context) : View(context) {
 
         private var initialized = false
         var lineCountSetting = 3
@@ -626,3 +625,177 @@ class OverlayService : Service() {
                     PointF(leftWall, topWall), PointF(midX, topWall), PointF(rightWall, topWall),
                     PointF(leftWall, bottomWall), PointF(midX, bottomWall), PointF(rightWall, bottomWall)
                 )
+                for (p in pockets) {
+                    canvas.drawCircle(p.x, p.y, 18f, pocketPaint)
+                }
+            }
+
+            canvas.drawLine(cueX, cueY, aimX, aimY, line1Paint)
+
+            val bounceCount = when (lineCountSetting) {
+                2 -> 1
+                3 -> 2
+                5 -> 4
+                else -> 2
+            }
+            drawReflectionsFromAim(canvas, aimX, aimY, aimX - cueX, aimY - cueY, bounceCount)
+
+            if (!isPlayMode) {
+                drawHandle(canvas, cueX, cueY, 26f, 0xEEFFFFFF.toInt())
+                drawHandle(canvas, aimX, aimY, 26f, 0xEE00FF55.toInt())
+
+                drawHandle(canvas, leftWall, topWall, 24f, 0xEE0088FF.toInt())
+                drawHandle(canvas, rightWall, topWall, 24f, 0xEE0088FF.toInt())
+                drawHandle(canvas, leftWall, bottomWall, 24f, 0xEE0088FF.toInt())
+                drawHandle(canvas, rightWall, bottomWall, 24f, 0xEE0088FF.toInt())
+            }
+        }
+
+        private fun drawHandle(canvas: Canvas, x: Float, y: Float, radius: Float, fillColor: Int) {
+            handlePaint.color = fillColor
+            canvas.drawCircle(x, y, radius, handlePaint)
+            canvas.drawCircle(x, y, radius, handleBorderPaint)
+        }
+
+        private fun drawReflectionsFromAim(
+            canvas: Canvas,
+            startX: Float,
+            startY: Float,
+            dirX: Float,
+            dirY: Float,
+            bounces: Int
+        ) {
+            if (bounces <= 0) return
+
+            var x = startX.coerceIn(leftWall, rightWall)
+            var y = startY.coerceIn(topWall, bottomWall)
+            var vx = dirX
+            var vy = dirY
+
+            val len = hypot(vx, vy)
+            if (len < 0.001f) return
+            vx /= len
+            vy /= len
+
+            for (i in 0 until bounces) {
+                var tMin = Float.MAX_VALUE
+                var hitVertical = false
+
+                if (vx > 0.0001f) {
+                    val t = (rightWall - x) / vx
+                    if (t > 0.5f && t < tMin) {
+                        tMin = t
+                        hitVertical = true
+                    }
+                } else if (vx < -0.0001f) {
+                    val t = (leftWall - x) / vx
+                    if (t > 0.5f && t < tMin) {
+                        tMin = t
+                        hitVertical = true
+                    }
+                }
+
+                if (vy > 0.0001f) {
+                    val t = (bottomWall - y) / vy
+                    if (t > 0.5f && t < tMin) {
+                        tMin = t
+                        hitVertical = false
+                    }
+                } else if (vy < -0.0001f) {
+                    val t = (topWall - y) / vy
+                    if (t > 0.5f && t < tMin) {
+                        tMin = t
+                        hitVertical = false
+                    }
+                }
+
+                if (tMin == Float.MAX_VALUE) break
+
+                val nextX = (x + vx * tMin).coerceIn(leftWall, rightWall)
+                val nextY = (y + vy * tMin).coerceIn(topWall, bottomWall)
+
+                val paintForBounce = when (i) {
+                    0 -> line2Paint
+                    1 -> line3Paint
+                    2 -> line4Paint
+                    else -> line5Paint
+                }
+
+                canvas.drawLine(x, y, nextX, nextY, paintForBounce)
+
+                x = nextX
+                y = nextY
+                if (hitVertical) vx = -vx else vy = -vy
+            }
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (isPlayMode) return false
+
+            val tx = event.x
+            val ty = event.y
+            val touchRadius = 75f
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    activeHandle = when {
+                        hypot(tx - cueX, ty - cueY) < touchRadius -> 1
+                        hypot(tx - aimX, ty - aimY) < touchRadius -> 2
+                        hypot(tx - leftWall, ty - topWall) < touchRadius -> 3
+                        hypot(tx - rightWall, ty - topWall) < touchRadius -> 4
+                        hypot(tx - leftWall, ty - bottomWall) < touchRadius -> 5
+                        hypot(tx - rightWall, ty - bottomWall) < touchRadius -> 6
+                        else -> 0
+                    }
+                    return activeHandle != 0
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val w = width.toFloat()
+                    val h = height.toFloat()
+                    val minBoxSize = 140f
+
+                    when (activeHandle) {
+                        1 -> {
+                            cueX = tx.coerceIn(leftWall, rightWall)
+                            cueY = ty.coerceIn(topWall, bottomWall)
+                        }
+                        2 -> {
+                            aimX = tx.coerceIn(leftWall, rightWall)
+                            aimY = ty.coerceIn(topWall, bottomWall)
+                        }
+                        3 -> {
+                            leftWall = tx.coerceIn(20f, rightWall - minBoxSize)
+                            topWall = ty.coerceIn(110f, bottomWall - minBoxSize)
+                        }
+                        4 -> {
+                            rightWall = tx.coerceIn(leftWall + minBoxSize, max(leftWall + minBoxSize, w - 20f))
+                            topWall = ty.coerceIn(110f, bottomWall - minBoxSize)
+                        }
+                        5 -> {
+                            leftWall = tx.coerceIn(20f, rightWall - minBoxSize)
+                            bottomWall = ty.coerceIn(topWall + minBoxSize, max(topWall + minBoxSize, h - 20f))
+                        }
+                        6 -> {
+                            rightWall = tx.coerceIn(leftWall + minBoxSize, max(leftWall + minBoxSize, w - 20f))
+                            bottomWall = ty.coerceIn(topWall + minBoxSize, max(topWall + minBoxSize, h - 20f))
+                        }
+                    }
+
+                    cueX = cueX.coerceIn(leftWall, rightWall)
+                    cueY = cueY.coerceIn(topWall, bottomWall)
+                    aimX = aimX.coerceIn(leftWall, rightWall)
+                    aimY = aimY.coerceIn(topWall, bottomWall)
+
+                    invalidate()
+                    return true
+                }
+
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    activeHandle = 0
+                }
+            }
+            return super.onTouchEvent(event)
+        }
+    }
+}
