@@ -22,8 +22,16 @@ class OverlayService : Service() {
     private lateinit var aimView: PoolAimView
     private lateinit var controlBtn: Button
     private lateinit var params: WindowManager.LayoutParams
-    private var unlockBtnWindow: Button? = null
-    private var isLocked = false
+
+    private var editBtnWindow: Button? = null
+    private var cueKnobView: KnobView? = null
+    private var aimKnobView: KnobView? = null
+    private var cueKnobParams: WindowManager.LayoutParams? = null
+    private var aimKnobParams: WindowManager.LayoutParams? = null
+
+    private var isPlayMode = false
+    private val knobSize = 120
+    private val knobHalf = knobSize / 2
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -31,17 +39,10 @@ class OverlayService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
         params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
-            layoutFlag,
+            overlayTypeFlag(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
@@ -51,13 +52,13 @@ class OverlayService : Service() {
         rootLayout.addView(aimView)
 
         controlBtn = Button(this).apply {
-            text = "LOCK AIM"
+            text = "PLAY MODE"
             textSize = 11f
             setPadding(24, 10, 24, 10)
             setBackgroundColor(0xDD009955.toInt())
             setTextColor(Color.WHITE)
             setOnClickListener {
-                lockOverlay()
+                enterPlayMode()
             }
         }
 
@@ -74,23 +75,35 @@ class OverlayService : Service() {
         windowManager.addView(rootLayout, params)
     }
 
-    private fun lockOverlay() {
-        if (isLocked) return
-        isLocked = true
+    private fun overlayTypeFlag(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+    }
 
+    private fun enterPlayMode() {
+        if (isPlayMode) return
+        isPlayMode = true
+
+        // Table borders & background screen become touch-through
         params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        rootLayout.visibility = View.VISIBLE
         controlBtn.visibility = View.GONE
         windowManager.updateViewLayout(rootLayout, params)
 
-        showFloatingUnlockButton()
+        showEditButton()
+        showLiveAimKnobs()
+        aimView.invalidate()
     }
 
-    private fun unlockOverlay() {
-        isLocked = false
-        removeUnlockButton()
+    private fun enterEditMode() {
+        isPlayMode = false
+        removeEditButton()
+        removeLiveAimKnobs()
 
         params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
@@ -99,20 +112,106 @@ class OverlayService : Service() {
         aimView.invalidate()
     }
 
-    private fun showFloatingUnlockButton() {
-        if (unlockBtnWindow != null) return
+    private fun showLiveAimKnobs() {
+        removeLiveAimKnobs()
 
-        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
+        val cParams = WindowManager.LayoutParams(
+            knobSize,
+            knobSize,
+            overlayTypeFlag(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (aimView.cueX - knobHalf).toInt()
+            y = (aimView.cueY - knobHalf).toInt()
         }
 
-        val unlockParams = WindowManager.LayoutParams(
+        val cKnob = KnobView(
+            this,
+            0xEEFFFFFF.toInt(),
+            getStartPos = { PointF(aimView.cueX, aimView.cueY) },
+            onMovePoint = { nx, ny ->
+                val clampedX = nx.coerceIn(aimView.leftWall, aimView.rightWall)
+                val clampedY = ny.coerceIn(aimView.topWall, aimView.bottomWall)
+                aimView.cueX = clampedX
+                aimView.cueY = clampedY
+                aimView.invalidate()
+                cParams.x = (clampedX - knobHalf).toInt()
+                cParams.y = (clampedY - knobHalf).toInt()
+                try {
+                    windowManager.updateViewLayout(cueKnobView, cParams)
+                } catch (_: Exception) {
+                }
+            }
+        )
+
+        val aParams = WindowManager.LayoutParams(
+            knobSize,
+            knobSize,
+            overlayTypeFlag(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (aimView.aimX - knobHalf).toInt()
+            y = (aimView.aimY - knobHalf).toInt()
+        }
+
+        val aKnob = KnobView(
+            this,
+            0xEE00FF55.toInt(),
+            getStartPos = { PointF(aimView.aimX, aimView.aimY) },
+            onMovePoint = { nx, ny ->
+                val clampedX = nx.coerceIn(aimView.leftWall, aimView.rightWall)
+                val clampedY = ny.coerceIn(aimView.topWall, aimView.bottomWall)
+                aimView.aimX = clampedX
+                aimView.aimY = clampedY
+                aimView.invalidate()
+                aParams.x = (clampedX - knobHalf).toInt()
+                aParams.y = (clampedY - knobHalf).toInt()
+                try {
+                    windowManager.updateViewLayout(aimKnobView, aParams)
+                } catch (_: Exception) {
+                }
+            }
+        )
+
+        cueKnobParams = cParams
+        aimKnobParams = aParams
+        cueKnobView = cKnob
+        aimKnobView = aKnob
+
+        windowManager.addView(cKnob, cParams)
+        windowManager.addView(aKnob, aParams)
+    }
+
+    private fun removeLiveAimKnobs() {
+        cueKnobView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
+        aimKnobView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
+        cueKnobView = null
+        aimKnobView = null
+        cueKnobParams = null
+        aimKnobParams = null
+    }
+
+    private fun showEditButton() {
+        if (editBtnWindow != null) return
+
+        val editParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            layoutFlag,
+            overlayTypeFlag(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -121,33 +220,34 @@ class OverlayService : Service() {
             y = 80
         }
 
-        unlockBtnWindow = Button(this).apply {
-            text = "EDIT AIM"
+        editBtnWindow = Button(this).apply {
+            text = "EDIT BORDERS"
             textSize = 11f
             setPadding(24, 10, 24, 10)
             setBackgroundColor(0xEEDD6600.toInt())
             setTextColor(Color.WHITE)
             setOnClickListener {
-                unlockOverlay()
+                enterEditMode()
             }
         }
 
-        windowManager.addView(unlockBtnWindow, unlockParams)
+        windowManager.addView(editBtnWindow, editParams)
     }
 
-    private fun removeUnlockButton() {
-        unlockBtnWindow?.let {
+    private fun removeEditButton() {
+        editBtnWindow?.let {
             try {
                 windowManager.removeView(it)
             } catch (_: Exception) {
             }
         }
-        unlockBtnWindow = null
+        editBtnWindow = null
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        removeUnlockButton()
+        removeEditButton()
+        removeLiveAimKnobs()
         if (::rootLayout.isInitialized) {
             try {
                 windowManager.removeView(rootLayout)
@@ -156,20 +256,72 @@ class OverlayService : Service() {
         }
     }
 
+    inner class KnobView(
+        context: Context,
+        private val colorInt: Int,
+        private val getStartPos: () -> PointF,
+        private val onMovePoint: (Float, Float) -> Unit
+    ) : View(context) {
+
+        private var offsetX = 0f
+        private var offsetY = 0f
+
+        private val fillPaint = Paint().apply {
+            color = colorInt
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+
+        private val strokePaint = Paint().apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            isAntiAlias = true
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val cx = width * 0.5f
+            val cy = height * 0.5f
+            val r = minOf(cx, cy) * 0.45f
+            canvas.drawCircle(cx, cy, r, fillPaint)
+            canvas.drawCircle(cx, cy, r, strokePaint)
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val start = getStartPos()
+                    offsetX = event.rawX - start.x
+                    offsetY = event.rawY - start.y
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val targetX = event.rawX - offsetX
+                    val targetY = event.rawY - offsetY
+                    onMovePoint(targetX, targetY)
+                    return true
+                }
+            }
+            return super.onTouchEvent(event)
+        }
+    }
+
     inner class PoolAimView(context: Context) : View(context) {
 
         private var initialized = false
 
-        private var leftWall = 100f
-        private var topWall = 250f
-        private var rightWall = 600f
-        private var bottomWall = 900f
+        var leftWall = 100f
+        var topWall = 250f
+        var rightWall = 600f
+        var bottomWall = 900f
 
-        private var cueX = 350f
-        private var cueY = 720f
-        private var aimX = 350f
-        private var aimY = 450f
+        var cueX = 350f
+        var cueY = 720f
+        var aimX = 350f
+        var aimY = 450f
 
+        // 1 = Cue, 2 = Aim, 3 = Top-Left, 4 = Top-Right, 5 = Bottom-Left, 6 = Bottom-Right
         private var activeHandle = 0
 
         private val tablePaint = Paint().apply {
@@ -267,13 +419,15 @@ class OverlayService : Service() {
             canvas.drawLine(cueX, cueY, aimX, aimY, line1Paint)
             drawReflectionsFromAim(canvas, aimX, aimY, aimX - cueX, aimY - cueY, 2)
 
-            drawHandle(canvas, cueX, cueY, 26f, 0xEEFFFFFF.toInt())
-            drawHandle(canvas, aimX, aimY, 26f, 0xEE00FF55.toInt())
+            if (!isPlayMode) {
+                drawHandle(canvas, cueX, cueY, 26f, 0xEEFFFFFF.toInt())
+                drawHandle(canvas, aimX, aimY, 26f, 0xEE00FF55.toInt())
 
-            drawHandle(canvas, leftWall, topWall, 24f, 0xEE0088FF.toInt())
-            drawHandle(canvas, rightWall, topWall, 24f, 0xEE0088FF.toInt())
-            drawHandle(canvas, leftWall, bottomWall, 24f, 0xEE0088FF.toInt())
-            drawHandle(canvas, rightWall, bottomWall, 24f, 0xEE0088FF.toInt())
+                drawHandle(canvas, leftWall, topWall, 24f, 0xEE0088FF.toInt())
+                drawHandle(canvas, rightWall, topWall, 24f, 0xEE0088FF.toInt())
+                drawHandle(canvas, leftWall, bottomWall, 24f, 0xEE0088FF.toInt())
+                drawHandle(canvas, rightWall, bottomWall, 24f, 0xEE0088FF.toInt())
+            }
         }
 
         private fun drawHandle(canvas: Canvas, x: Float, y: Float, radius: Float, fillColor: Int) {
@@ -348,7 +502,7 @@ class OverlayService : Service() {
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
-            if (isLocked) return false
+            if (isPlayMode) return false
 
             val tx = event.x
             val ty = event.y
