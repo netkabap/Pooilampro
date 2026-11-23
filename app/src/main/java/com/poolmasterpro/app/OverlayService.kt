@@ -25,19 +25,15 @@ class OverlayService : Service() {
     private lateinit var params: WindowManager.LayoutParams
 
     private var topBarWindow: LinearLayout? = null
-    private var topBarParams: WindowManager.LayoutParams? = null
     private var modeToggleBtn: Button? = null
 
     private var lineBarWindow: LinearLayout? = null
-    private var lineBarParams: WindowManager.LayoutParams? = null
     private var btn2Line: Button? = null
     private var btn3Line: Button? = null
     private var btnUnlimited: Button? = null
 
     private var cueKnobView: KnobView? = null
     private var aimKnobView: KnobView? = null
-    private var cueKnobParams: WindowManager.LayoutParams? = null
-    private var aimKnobParams: WindowManager.LayoutParams? = null
 
     private var isPlayMode = false
     private var lineMode = 3 // 2 = 2 Line, 3 = 3 Line, 99 = Unlimited
@@ -126,12 +122,8 @@ class OverlayService : Service() {
             }
         }
 
-        val spacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(10, 1)
-        }
-
         bar.addView(toggleBtn)
-        bar.addView(spacer)
+        bar.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(10, 1) })
         bar.addView(offBtn)
 
         attachDragToView(bar) { dx, dy ->
@@ -143,7 +135,6 @@ class OverlayService : Service() {
             }
         }
 
-        topBarParams = barParams
         modeToggleBtn = toggleBtn
         topBarWindow = bar
         windowManager.addView(bar, barParams)
@@ -212,7 +203,6 @@ class OverlayService : Service() {
         btn2Line = b2
         btn3Line = b3
         btnUnlimited = bUnlim
-        lineBarParams = barParams
         lineBarWindow = bar
 
         refreshLineModeButtons()
@@ -369,8 +359,6 @@ class OverlayService : Service() {
             }
         )
 
-        cueKnobParams = cParams
-        aimKnobParams = aParams
         cueKnobView = cKnob
         aimKnobView = aKnob
 
@@ -393,8 +381,6 @@ class OverlayService : Service() {
         }
         cueKnobView = null
         aimKnobView = null
-        cueKnobParams = null
-        aimKnobParams = null
     }
 
     private fun removeTopControlBar() {
@@ -405,7 +391,6 @@ class OverlayService : Service() {
             }
         }
         topBarWindow = null
-        topBarParams = null
         modeToggleBtn = null
     }
 
@@ -417,7 +402,6 @@ class OverlayService : Service() {
             }
         }
         lineBarWindow = null
-        lineBarParams = null
         btn2Line = null
         btn3Line = null
         btnUnlimited = null
@@ -500,7 +484,6 @@ class OverlayService : Service() {
         var aimX = 350f
         var aimY = 450f
 
-        // 1 = Cue, 2 = Aim, 3 = TL, 4 = TR, 5 = BL, 6 = BR
         private var activeHandle = 0
 
         private val tablePaint = Paint().apply {
@@ -590,7 +573,6 @@ class OverlayService : Service() {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
 
-            // Hide table borders & pockets when locked in Play Mode
             if (!isPlayMode) {
                 canvas.drawRect(leftWall, topWall, rightWall, bottomWall, tablePaint)
 
@@ -604,11 +586,30 @@ class OverlayService : Service() {
                 }
             }
 
-            // Line 1: Cue -> Aim
             canvas.drawLine(cueX, cueY, aimX, aimY, line1Paint)
 
-            // Bounce lines from Aim point based on selected lineCountSetting
             val bounceCount = when (lineCountSetting) {
-                2 -> 1       // 1st line (white) + 1 bounce (yellow) = 2 lines
-                3 -> 2       // 1st line (white) + 2 bounces (yellow, cyan) = 3 lines
-                el
+                2 -> 1
+                3 -> 2
+                else -> 30
+            }
+            drawReflectionsFromAim(canvas, aimX, aimY, aimX - cueX, aimY - cueY, bounceCount)
+
+            if (!isPlayMode) {
+                drawHandle(canvas, cueX, cueY, 26f, 0xEEFFFFFF.toInt())
+                drawHandle(canvas, aimX, aimY, 26f, 0xEE00FF55.toInt())
+
+                drawHandle(canvas, leftWall, topWall, 24f, 0xEE0088FF.toInt())
+                drawHandle(canvas, rightWall, topWall, 24f, 0xEE0088FF.toInt())
+                drawHandle(canvas, leftWall, bottomWall, 24f, 0xEE0088FF.toInt())
+                drawHandle(canvas, rightWall, bottomWall, 24f, 0xEE0088FF.toInt())
+            }
+        }
+
+        private fun drawHandle(canvas: Canvas, x: Float, y: Float, radius: Float, fillColor: Int) {
+            handlePaint.color = fillColor
+            canvas.drawCircle(x, y, radius, handlePaint)
+            canvas.drawCircle(x, y, radius, handleBorderPaint)
+        }
+
+  
