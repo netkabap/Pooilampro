@@ -14,8 +14,11 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.sin
 
 class OverlayService : Service() {
 
@@ -31,9 +34,9 @@ class OverlayService : Service() {
     private var menuPanelParams: WindowManager.LayoutParams? = null
 
     private var modeToggleBtn: Button? = null
-    private var btn2Line: Button? = null
     private var btn3Line: Button? = null
     private var btn5Line: Button? = null
+    private val pocketButtons = mutableMapOf<Int, Button>()
 
     private var cueKnobView: KnobView? = null
     private var aimKnobView: KnobView? = null
@@ -41,9 +44,11 @@ class OverlayService : Service() {
     private var isPlayMode = false
     private var isMenuOpen = false
     private var lineMode = 3
+    private var selectedPocket: Int? = null
 
-    private val knobSize = 120
+    private val knobSize = 84
     private val knobHalf = knobSize / 2
+    private val fingerLiftY = 36f
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -79,7 +84,7 @@ class OverlayService : Service() {
     private fun makePillBg(colorInt: Int): GradientDrawable {
         return GradientDrawable().apply {
             setColor(colorInt)
-            cornerRadius = 18f
+            cornerRadius = 16f
         }
     }
 
@@ -194,323 +199,12 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayTypeFlag(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = max(0, bParams.x)
-            y = max(0, bParams.y + 82)
-        }
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(12, 10, 12, 10)
-            background = makePillBg(0xDD1B1F24.toInt())
-        }
-
-        val row1 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-
-        val toggleBtn = Button(this).apply {
-            text = if (isPlayMode) "EDIT BORDERS" else "PLAY MODE"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            setPadding(20, 8, 20, 8)
-            background = makePillBg(if (isPlayMode) 0xEEDD6600.toInt() else 0xEE009955.toInt())
-            setOnClickListener {
-                if (isPlayMode) enterEditMode() else enterPlayMode()
-            }
-        }
-
-        val offBtn = Button(this).apply {
-            text = "OFF"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            setPadding(20, 8, 20, 8)
-            background = makePillBg(0xEED92626.toInt())
-            setOnClickListener {
-                stopSelf()
-            }
-        }
-
-        row1.addView(toggleBtn)
-        row1.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(10, 1) })
-        row1.addView(offBtn)
-
-        val row2 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 10, 0, 0)
-        }
-
-        val b2 = Button(this).apply {
-            text = "2L"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            setPadding(20, 8, 20, 8)
-            setOnClickListener { setLineMode(2) }
-        }
-
-        val b3 = Button(this).apply {
-            text = "3L"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            setPadding(20, 8, 20, 8)
-            setOnClickListener { setLineMode(3) }
-        }
-
-        val b5 = Button(this).apply {
-            text = "5L"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            setPadding(20, 8, 20, 8)
-            setOnClickListener { setLineMode(5) }
-        }
-
-        row2.addView(b2)
-        row2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8, 1) })
-        row2.addView(b3)
-        row2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8, 1) })
-        row2.addView(b5)
-
-        container.addView(row1)
-        container.addView(row2)
-
-        modeToggleBtn = toggleBtn
-        btn2Line = b2
-        btn3Line = b3
-        btn5Line = b5
-        menuPanelParams = mParams
-        menuPanelWindow = container
-
-        refreshLineModeButtons()
-        windowManager.addView(container, mParams)
-    }
-
-    private fun setLineMode(mode: Int) {
-        lineMode = mode
-        aimView.lineCountSetting = mode
-        aimView.invalidate()
-        refreshLineModeButtons()
-    }
-
-    private fun refreshLineModeButtons() {
-        btn2Line?.background = makePillBg(if (lineMode == 2) 0xFF0088FF.toInt() else 0x88333A42.toInt())
-        btn3Line?.background = makePillBg(if (lineMode == 3) 0xFF00AA55.toInt() else 0x88333A42.toInt())
-        btn5Line?.background = makePillBg(if (lineMode == 5) 0xFFDD5500.toInt() else 0x88333A42.toInt())
-    }
-
-    private fun enterPlayMode() {
-        if (isPlayMode) return
-        isPlayMode = true
-
-        params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        windowManager.updateViewLayout(rootLayout, params)
-
-        modeToggleBtn?.text = "EDIT BORDERS"
-        modeToggleBtn?.background = makePillBg(0xEEDD6600.toInt())
-
-        showLiveAimKnobs()
-        aimView.invalidate()
-    }
-
-    private fun enterEditMode() {
-        isPlayMode = false
-        removeLiveAimKnobs()
-
-        params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        windowManager.updateViewLayout(rootLayout, params)
-
-        modeToggleBtn?.text = "PLAY MODE"
-        modeToggleBtn?.background = makePillBg(0xEE009955.toInt())
-
-        aimView.invalidate()
-    }
-
-    private fun showLiveAimKnobs() {
-        removeLiveAimKnobs()
-
-        val cParams = WindowManager.LayoutParams(
-            knobSize,
-            knobSize,
-            overlayTypeFlag(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = (aimView.cueX - knobHalf).toInt()
-            y = (aimView.cueY - knobHalf).toInt()
-        }
-
-        val cKnob = KnobView(
-            this,
-            0xEEFFFFFF.toInt(),
-            getStartPos = { PointF(aimView.cueX, aimView.cueY) },
-            onMovePoint = { nx, ny ->
-                val clampedX = nx.coerceIn(aimView.leftWall, aimView.rightWall)
-                val clampedY = ny.coerceIn(aimView.topWall, aimView.bottomWall)
-                aimView.cueX = clampedX
-                aimView.cueY = clampedY
-                aimView.invalidate()
-                cParams.x = (clampedX - knobHalf).toInt()
-                cParams.y = (clampedY - knobHalf).toInt()
-                try {
-                    windowManager.updateViewLayout(cueKnobView, cParams)
-                } catch (_: Exception) {
-                }
-            }
-        )
-
-        val aParams = WindowManager.LayoutParams(
-            knobSize,
-            knobSize,
-            overlayTypeFlag(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = (aimView.aimX - knobHalf).toInt()
-            y = (aimView.aimY - knobHalf).toInt()
-        }
-
-        val aKnob = KnobView(
-            this,
-            0xEE00FF55.toInt(),
-            getStartPos = { PointF(aimView.aimX, aimView.aimY) },
-            onMovePoint = { nx, ny ->
-                val clampedX = nx.coerceIn(aimView.leftWall, aimView.rightWall)
-                val clampedY = ny.coerceIn(aimView.topWall, aimView.bottomWall)
-                aimView.aimX = clampedX
-                aimView.aimY = clampedY
-                aimView.invalidate()
-                aParams.x = (clampedX - knobHalf).toInt()
-                aParams.y = (clampedY - knobHalf).toInt()
-                try {
-                    windowManager.updateViewLayout(aimKnobView, aParams)
-                } catch (_: Exception) {
-                }
-            }
-        )
-
-        cueKnobView = cKnob
-        aimKnobView = aKnob
-
-        windowManager.addView(cKnob, cParams)
-        windowManager.addView(aKnob, aParams)
-    }
-
-    private fun removeLiveAimKnobs() {
-        cueKnobView?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {
-            }
-        }
-        aimKnobView?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {
-            }
-        }
-        cueKnobView = null
-        aimKnobView = null
-    }
-
-    private fun removeMenuPanel() {
-        menuPanelWindow?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {
-            }
-        }
-        menuPanelWindow = null
-        menuPanelParams = null
-        modeToggleBtn = null
-        btn2Line = null
-        btn3Line = null
-        btn5Line = null
-    }
-
-    private fun removeSonoBhaiButton() {
-        hubBtnWindow?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {
-            }
-        }
-        hubBtnWindow = null
-        hubBtnParams = null
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        isMenuOpen = false
-        removeMenuPanel()
-        removeSonoBhaiButton()
-        removeLiveAimKnobs()
-        if (::rootLayout.isInitialized) {
-            try {
-                windowManager.removeView(rootLayout)
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    inner class KnobView(
-        context: Context,
-        private val colorInt: Int,
-        private val getStartPos: () -> PointF,
-        private val onMovePoint: (Float, Float) -> Unit
-    ) : View(context) {
-
-        private var offsetX = 0f
-        private var offsetY = 0f
-
-        private val fillPaint = Paint().apply {
-            color = colorInt
-            style = Paint.Style.FILL
-            isAntiAlias = true
-        }
-
-        private val strokePaint = Paint().apply {
-            color = Color.BLACK
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-            isAntiAlias = true
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            val cx = width * 0.5f
-            val cy = height * 0.5f
-            val r = minOf(cx, cy) * 0.45f
-            canvas.drawCircle(cx, cy, r, fillPaint)
-            canvas.drawCircle(cx, cy, r, strokePaint)
-        }
-
-        override fun onTouchEvent(event: MotionEvent): Boolean {
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    val start = getStartPos()
-                    offsetX = event.rawX - start.x
-                    offsetY = event.rawY - start.y
-                    return true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    onMovePoint(event.rawX - offsetX, event.rawY - offsetY)
-                    return true
-                }
-            }
-            return super.onTouchEvent(event)
-        }
-    }
-        inner class PoolAimView(context: Context) : View(context) {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager
+                inner class PoolAimView(context: Context) : View(context) {
 
         private var initialized = false
         var lineCountSetting = 3
+        var assistPocket: Int? = null
 
         var leftWall = 100f
         var topWall = 250f
@@ -561,6 +255,12 @@ class OverlayService : Service() {
             isAntiAlias = true
         }
 
+        private val assistLinePaint = Paint().apply {
+            color = 0xEE00FF88.toInt()
+            strokeWidth = 4f
+            isAntiAlias = true
+        }
+
         private val pocketPaint = Paint().apply {
             color = 0xAAFF0055.toInt()
             style = Paint.Style.FILL
@@ -568,15 +268,16 @@ class OverlayService : Service() {
         }
 
         private val handlePaint = Paint().apply {
-            style = Paint.Style.FILL
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
             isAntiAlias = true
         }
 
-        private val handleBorderPaint = Paint().apply {
-            color = Color.BLACK
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-            isAntiAlias = true
+        fun preserveBallsExact() {
+            cueX = cueX.coerceIn(leftWall, rightWall)
+            cueY = cueY.coerceIn(topWall, bottomWall)
+            aimX = aimX.coerceIn(leftWall, rightWall)
+            aimY = aimY.coerceIn(topWall, bottomWall)
         }
 
         override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -608,53 +309,91 @@ class OverlayService : Service() {
             topWall = topWall.coerceIn(margin + 90f, h - margin - 120f)
             bottomWall = bottomWall.coerceIn(topWall + 120f, h - margin)
 
-            cueX = cueX.coerceIn(leftWall, rightWall)
-            cueY = cueY.coerceIn(topWall, bottomWall)
-            aimX = aimX.coerceIn(leftWall, rightWall)
-            aimY = aimY.coerceIn(topWall, bottomWall)
+            preserveBallsExact()
+        }
+
+        private fun getPocketPoints(): List<PointF> {
+            val midX = (leftWall + rightWall) * 0.5f
+            return listOf(
+                PointF(leftWall, topWall),
+                PointF(midX, topWall),
+                PointF(rightWall, topWall),
+                PointF(leftWall, bottomWall),
+                PointF(midX, bottomWall),
+                PointF(rightWall, bottomWall)
+            )
+        }
+
+        fun applyAimAssistFromPocket() {
+            val pIndex = (assistPocket ?: return) - 1
+            val pockets = getPocketPoints()
+            if (pIndex !in pockets.indices) return
+            val targetPocket = pockets[pIndex]
+
+            val dx = targetPocket.x - aimX
+            val dy = targetPocket.y - aimY
+            val dist = hypot(dx, dy)
+            if (dist < 1f) return
+
+            val ballRadius = 18f
+            val ux = dx / dist
+            val uy = dy / dist
+
+            val contactX = (aimX - ux * ballRadius).coerceIn(leftWall, rightWall)
+            val contactY = (aimY - uy * ballRadius).coerceIn(topWall, bottomWall)
+
+            val cueDx = contactX - cueX
+            val cueDy = contactY - cueY
+            val cueLen = hypot(cueDx, cueDy)
+            if (cueLen > 1f) {
+                val angleToContact = atan2(cueDy, cueDx)
+                val currentAimDist = max(40f, hypot(aimX - cueX, aimY - cueY))
+                aimX = (cueX + cos(angleToContact) * currentAimDist).coerceIn(leftWall, rightWall)
+                aimY = (cueY + sin(angleToContact) * currentAimDist).coerceIn(topWall, bottomWall)
+            }
         }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
 
+            val pockets = getPocketPoints()
+
             if (!isPlayMode) {
                 canvas.drawRect(leftWall, topWall, rightWall, bottomWall, tablePaint)
-
-                val midX = (leftWall + rightWall) * 0.5f
-                val pockets = listOf(
-                    PointF(leftWall, topWall), PointF(midX, topWall), PointF(rightWall, topWall),
-                    PointF(leftWall, bottomWall), PointF(midX, bottomWall), PointF(rightWall, bottomWall)
-                )
                 for (p in pockets) {
-                    canvas.drawCircle(p.x, p.y, 18f, pocketPaint)
+                    canvas.drawCircle(p.x, p.y, 16f, pocketPaint)
+                }
+            }
+
+            assistPocket?.let { pNum ->
+                val p = pockets.getOrNull(pNum - 1)
+                if (p != null) {
+                    canvas.drawLine(aimX, aimY, p.x, p.y, assistLinePaint)
                 }
             }
 
             canvas.drawLine(cueX, cueY, aimX, aimY, line1Paint)
 
             val bounceCount = when (lineCountSetting) {
-                2 -> 1
-                3 -> 2
                 5 -> 4
                 else -> 2
             }
             drawReflectionsFromAim(canvas, aimX, aimY, aimX - cueX, aimY - cueY, bounceCount)
 
             if (!isPlayMode) {
-                drawHandle(canvas, cueX, cueY, 26f, 0xEEFFFFFF.toInt())
-                drawHandle(canvas, aimX, aimY, 26f, 0xEE00FF55.toInt())
+                drawRingHandle(canvas, cueX, cueY, 16f, Color.WHITE)
+                drawRingHandle(canvas, aimX, aimY, 16f, 0xFF00FF55.toInt())
 
-                drawHandle(canvas, leftWall, topWall, 24f, 0xEE0088FF.toInt())
-                drawHandle(canvas, rightWall, topWall, 24f, 0xEE0088FF.toInt())
-                drawHandle(canvas, leftWall, bottomWall, 24f, 0xEE0088FF.toInt())
-                drawHandle(canvas, rightWall, bottomWall, 24f, 0xEE0088FF.toInt())
+                drawRingHandle(canvas, leftWall, topWall, 18f, 0xFF0088FF.toInt())
+                drawRingHandle(canvas, rightWall, topWall, 18f, 0xFF0088FF.toInt())
+                drawRingHandle(canvas, leftWall, bottomWall, 18f, 0xFF0088FF.toInt())
+                drawRingHandle(canvas, rightWall, bottomWall, 18f, 0xFF0088FF.toInt())
             }
         }
 
-        private fun drawHandle(canvas: Canvas, x: Float, y: Float, radius: Float, fillColor: Int) {
-            handlePaint.color = fillColor
+        private fun drawRingHandle(canvas: Canvas, x: Float, y: Float, radius: Float, strokeColor: Int) {
+            handlePaint.color = strokeColor
             canvas.drawCircle(x, y, radius, handlePaint)
-            canvas.drawCircle(x, y, radius, handleBorderPaint)
         }
 
         private fun drawReflectionsFromAim(
@@ -782,11 +521,7 @@ class OverlayService : Service() {
                         }
                     }
 
-                    cueX = cueX.coerceIn(leftWall, rightWall)
-                    cueY = cueY.coerceIn(topWall, bottomWall)
-                    aimX = aimX.coerceIn(leftWall, rightWall)
-                    aimY = aimY.coerceIn(topWall, bottomWall)
-
+                    preserveBallsExact()
                     invalidate()
                     return true
                 }
@@ -798,4 +533,5 @@ class OverlayService : Service() {
             return super.onTouchEvent(event)
         }
     }
-}
+            }
+            
