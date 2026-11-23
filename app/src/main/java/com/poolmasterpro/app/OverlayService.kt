@@ -199,8 +199,381 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayTypeFlag(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager
-                inner class PoolAimView(context: Context) : View(context) {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = max(0, bParams.x)
+            y = max(0, bParams.y + 82)
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 10, 12, 10)
+            background = makePillBg(0xDD1B1F24.toInt())
+        }
+
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        val toggleBtn = Button(this).apply {
+            text = if (isPlayMode) "EDIT BORDERS" else "PLAY MODE"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setPadding(18, 8, 18, 8)
+            background = makePillBg(if (isPlayMode) 0xEEDD6600.toInt() else 0xEE009955.toInt())
+            setOnClickListener {
+                if (isPlayMode) enterEditMode() else enterPlayMode()
+            }
+        }
+
+        val offBtn = Button(this).apply {
+            text = "OFF"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setPadding(18, 8, 18, 8)
+            background = makePillBg(0xEED92626.toInt())
+            setOnClickListener {
+                stopSelf()
+            }
+        }
+
+        row1.addView(toggleBtn)
+        row1.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8, 1) })
+        row1.addView(offBtn)
+
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 8, 0, 0)
+        }
+
+        val b3 = Button(this).apply {
+            text = "3L"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setPadding(24, 8, 24, 8)
+            setOnClickListener { setLineMode(3) }
+        }
+
+        val b5 = Button(this).apply {
+            text = "5L"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setPadding(24, 8, 24, 8)
+            setOnClickListener { setLineMode(5) }
+        }
+
+        row2.addView(b3)
+        row2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8, 1) })
+        row2.addView(b5)
+
+        val row3 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 8, 0, 0)
+        }
+
+        pocketButtons.clear()
+        for (p in 1..6) {
+            val pBtn = Button(this).apply {
+                text = "P$p"
+                textSize = 10f
+                setTextColor(Color.WHITE)
+                setPadding(12, 6, 12, 6)
+                setOnClickListener { togglePocketAimAssist(p) }
+            }
+            pocketButtons[p] = pBtn
+            row3.addView(pBtn)
+            if (p < 6) {
+                row3.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(4, 1) })
+            }
+        }
+
+        container.addView(row1)
+        container.addView(row2)
+        container.addView(row3)
+
+        modeToggleBtn = toggleBtn
+        btn3Line = b3
+        btn5Line = b5
+        menuPanelParams = mParams
+        menuPanelWindow = container
+
+        refreshLineModeButtons()
+        refreshPocketButtons()
+        windowManager.addView(container, mParams)
+    }
+
+    private fun togglePocketAimAssist(pocketNum: Int) {
+        selectedPocket = if (selectedPocket == pocketNum) null else pocketNum
+        aimView.assistPocket = selectedPocket
+        aimView.applyAimAssistFromPocket()
+        refreshPocketButtons()
+        syncKnobPositions()
+        aimView.invalidate()
+    }
+
+    private fun refreshPocketButtons() {
+        for ((p, btn) in pocketButtons) {
+            btn.background = makePillBg(
+                if (selectedPocket == p) 0xFF00AAFF.toInt() else 0x88333A42.toInt()
+            )
+        }
+    }
+
+    private fun setLineMode(mode: Int) {
+        lineMode = mode
+        aimView.lineCountSetting = mode
+        aimView.invalidate()
+        refreshLineModeButtons()
+    }
+
+    private fun refreshLineModeButtons() {
+        btn3Line?.background = makePillBg(if (lineMode == 3) 0xFF00AA55.toInt() else 0x88333A42.toInt())
+        btn5Line?.background = makePillBg(if (lineMode == 5) 0xFFDD5500.toInt() else 0x88333A42.toInt())
+    }
+
+    private fun enterPlayMode() {
+        if (isPlayMode) return
+        aimView.preserveBallsExact()
+        isPlayMode = true
+
+        params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        windowManager.updateViewLayout(rootLayout, params)
+
+        modeToggleBtn?.text = "EDIT BORDERS"
+        modeToggleBtn?.background = makePillBg(0xEEDD6600.toInt())
+
+        showLiveAimKnobs()
+        syncKnobPositions()
+        aimView.invalidate()
+    }
+
+    private fun enterEditMode() {
+        aimView.preserveBallsExact()
+        isPlayMode = false
+        removeLiveAimKnobs()
+
+        params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        windowManager.updateViewLayout(rootLayout, params)
+
+        modeToggleBtn?.text = "PLAY MODE"
+        modeToggleBtn?.background = makePillBg(0xEE009955.toInt())
+
+        aimView.invalidate()
+    }
+
+    private fun syncKnobPositions() {
+        cueKnobView?.let { cView ->
+            val lp = cView.layoutParams as? WindowManager.LayoutParams
+            if (lp != null) {
+                lp.x = (aimView.cueX - knobHalf).toInt()
+                lp.y = (aimView.cueY - knobHalf).toInt()
+                try {
+                    windowManager.updateViewLayout(cView, lp)
+                } catch (_: Exception) {
+                }
+            }
+        }
+        aimKnobView?.let { aView ->
+            val lp = aView.layoutParams as? WindowManager.LayoutParams
+            if (lp != null) {
+                lp.x = (aimView.aimX - knobHalf).toInt()
+                lp.y = (aimView.aimY - knobHalf).toInt()
+                try {
+                    windowManager.updateViewLayout(aView, lp)
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    private fun showLiveAimKnobs() {
+        removeLiveAimKnobs()
+
+        val cParams = WindowManager.LayoutParams(
+            knobSize,
+            knobSize,
+            overlayTypeFlag(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (aimView.cueX - knobHalf).toInt()
+            y = (aimView.cueY - knobHalf).toInt()
+        }
+
+        val cKnob = KnobView(
+            this,
+            Color.WHITE,
+            liftOffsetY = fingerLiftY,
+            getStartPos = { PointF(aimView.cueX, aimView.cueY) },
+            onMovePoint = { nx, ny ->
+                val clampedX = nx.coerceIn(aimView.leftWall, aimView.rightWall)
+                val clampedY = ny.coerceIn(aimView.topWall, aimView.bottomWall)
+                aimView.cueX = clampedX
+                aimView.cueY = clampedY
+                aimView.applyAimAssistFromPocket()
+                aimView.invalidate()
+                cParams.x = (aimView.cueX - knobHalf).toInt()
+                cParams.y = (aimView.cueY - knobHalf).toInt()
+                try {
+                    windowManager.updateViewLayout(cueKnobView, cParams)
+                } catch (_: Exception) {
+                }
+            }
+        )
+
+        val aParams = WindowManager.LayoutParams(
+            knobSize,
+            knobSize,
+            overlayTypeFlag(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (aimView.aimX - knobHalf).toInt()
+            y = (aimView.aimY - knobHalf).toInt()
+        }
+
+        val aKnob = KnobView(
+            this,
+            0xFF00FF55.toInt(),
+            liftOffsetY = fingerLiftY,
+            getStartPos = { PointF(aimView.aimX, aimView.aimY) },
+            onMovePoint = { nx, ny ->
+                val clampedX = nx.coerceIn(aimView.leftWall, aimView.rightWall)
+                val clampedY = ny.coerceIn(aimView.topWall, aimView.bottomWall)
+                aimView.aimX = clampedX
+                aimView.aimY = clampedY
+                aimView.applyAimAssistFromPocket()
+                aimView.invalidate()
+                aParams.x = (aimView.aimX - knobHalf).toInt()
+                aParams.y = (aimView.aimY - knobHalf).toInt()
+                try {
+                    windowManager.updateViewLayout(aimKnobView, aParams)
+                } catch (_: Exception) {
+                }
+            }
+        )
+
+        cueKnobView = cKnob
+        aimKnobView = aKnob
+
+        windowManager.addView(cKnob, cParams)
+        windowManager.addView(aKnob, aParams)
+    }
+
+    private fun removeLiveAimKnobs() {
+        cueKnobView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
+        aimKnobView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
+        cueKnobView = null
+        aimKnobView = null
+    }
+
+    private fun removeMenuPanel() {
+        menuPanelWindow?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
+        menuPanelWindow = null
+        menuPanelParams = null
+        modeToggleBtn = null
+        btn3Line = null
+        btn5Line = null
+        pocketButtons.clear()
+    }
+
+    private fun removeSonoBhaiButton() {
+        hubBtnWindow?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
+        hubBtnWindow = null
+        hubBtnParams = null
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        isMenuOpen = false
+        removeMenuPanel()
+        removeSonoBhaiButton()
+        removeLiveAimKnobs()
+        if (::rootLayout.isInitialized) {
+            try {
+                windowManager.removeView(rootLayout)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    inner class KnobView(
+        context: Context,
+        private val ringColor: Int,
+        private val liftOffsetY: Float,
+        private val getStartPos: () -> PointF,
+        private val onMovePoint: (Float, Float) -> Unit
+    ) : View(context) {
+
+        private var offsetX = 0f
+        private var offsetY = 0f
+
+        private val ringPaint = Paint().apply {
+            color = ringColor
+            style = Paint.Style.STROKE
+            strokeWidth = 5f
+            isAntiAlias = true
+        }
+
+        private val centerDotPaint = Paint().apply {
+            color = ringColor
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val cx = width * 0.5f
+            val cy = height * 0.5f
+            val r = minOf(cx, cy) * 0.52f
+            canvas.drawCircle(cx, cy, r, ringPaint)
+            canvas.drawCircle(cx, cy, 3f, centerDotPaint)
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val start = getStartPos()
+                    offsetX = event.rawX - start.x
+                    offsetY = (event.rawY - liftOffsetY) - start.y
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    onMovePoint(event.rawX - offsetX, (event.rawY - liftOffsetY) - offsetY)
+                    return true
+                }
+            }
+            return super.onTouchEvent(event)
+        }
+    }
+        inner class PoolAimView(context: Context) : View(context) {
 
         private var initialized = false
         var lineCountSetting = 3
@@ -533,5 +906,4 @@ class OverlayService : Service() {
             return super.onTouchEvent(event)
         }
     }
-            }
-            
+}
