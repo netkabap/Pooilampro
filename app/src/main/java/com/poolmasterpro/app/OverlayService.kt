@@ -33,6 +33,12 @@ class OverlayService : Service() {
     private var menuPanelWindow: LinearLayout? = null
     private var menuPanelParams: WindowManager.LayoutParams? = null
 
+    private var pocketBarWindow: LinearLayout? = null
+    private var pocketBarParams: WindowManager.LayoutParams? = null
+
+    private var ringSizeBarWindow: LinearLayout? = null
+    private var ringSizeBarParams: WindowManager.LayoutParams? = null
+
     private var modeToggleBtn: Button? = null
     private var btn3Line: Button? = null
     private var btn5Line: Button? = null
@@ -40,15 +46,20 @@ class OverlayService : Service() {
 
     private var cueKnobView: KnobView? = null
     private var aimKnobView: KnobView? = null
+    private var aimDimHandleView: DimOffsetHandleView? = null
 
     private var isPlayMode = false
     private var isMenuOpen = false
     private var lineMode = 3
     private var selectedPocket: Int? = null
 
-    private val knobSize = 84
+    private var greenRingRadius = 16f
+    private val dimHandleOffsetX = 68f
+    private val dimHandleOffsetY = -58f
+
+    private val knobSize = 110
     private val knobHalf = knobSize / 2
-    private val fingerLiftY = 36f
+    private val fingerLiftY = 72f
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -65,11 +76,15 @@ class OverlayService : Service() {
         )
 
         rootLayout = FrameLayout(this)
-        aimView = PoolAimView(this)
+        aimView = PoolAimView(this).apply {
+            aimRingRadius = greenRingRadius
+        }
         rootLayout.addView(aimView)
         windowManager.addView(rootLayout, params)
 
         showSonoBhaiButton()
+        showSeparatePocketBar()
+        showRingSizeBar()
     }
 
     private fun overlayTypeFlag(): Int {
@@ -81,10 +96,10 @@ class OverlayService : Service() {
         }
     }
 
-    private fun makePillBg(colorInt: Int): GradientDrawable {
+    private fun makePillBg(colorInt: Int, radius: Float = 10f): GradientDrawable {
         return GradientDrawable().apply {
             setColor(colorInt)
-            cornerRadius = 16f
+            cornerRadius = radius
         }
     }
 
@@ -100,16 +115,20 @@ class OverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 24
-            y = 75
+            x = 18
+            y = 14
         }
 
         val btn = Button(this).apply {
             text = "SonoBhai"
-            textSize = 12f
+            textSize = 9f
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
             setTextColor(Color.WHITE)
-            setPadding(24, 10, 24, 10)
-            background = makePillBg(0xEE111827.toInt())
+            setPadding(12, 4, 12, 4)
+            background = makePillBg(0xEE111827.toInt(), 8f)
             setOnClickListener {
                 toggleMenuPanel()
             }
@@ -168,6 +187,162 @@ class OverlayService : Service() {
         windowManager.addView(btn, bParams)
     }
 
+    private fun showSeparatePocketBar() {
+        removeSeparatePocketBar()
+
+        val pParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayTypeFlag(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            x = 0
+            y = 6
+        }
+
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(6, 3, 6, 3)
+            background = makePillBg(0xCC14181E.toInt(), 8f)
+        }
+
+        pocketButtons.clear()
+        for (p in 1..6) {
+            val pBtn = Button(this).apply {
+                text = "P$p"
+                textSize = 8f
+                minWidth = 0
+                minimumWidth = 0
+                minHeight = 0
+                minimumHeight = 0
+                setTextColor(Color.WHITE)
+                setPadding(8, 3, 8, 3)
+                setOnClickListener { togglePocketAimAssist(p) }
+            }
+            pocketButtons[p] = pBtn
+            bar.addView(pBtn)
+            if (p < 6) {
+                bar.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(3, 1) })
+            }
+        }
+
+        var lastRawX = 0f
+        var lastRawY = 0f
+        var startRawX = 0f
+        var startRawY = 0f
+        var dragging = false
+
+        bar.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startRawX = event.rawX
+                    startRawY = event.rawY
+                    lastRawX = event.rawX
+                    lastRawY = event.rawY
+                    dragging = false
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - lastRawX
+                    val dy = event.rawY - lastRawY
+                    if (!dragging && hypot(event.rawX - startRawX, event.rawY - startRawY) > 14f) {
+                        dragging = true
+                    }
+                    lastRawX = event.rawX
+                    lastRawY = event.rawY
+                    if (dragging) {
+                        pParams.gravity = Gravity.TOP or Gravity.START
+                        pParams.x = max(0, pParams.x + dx.toInt())
+                        pParams.y = max(0, pParams.y + dy.toInt())
+                        try {
+                            windowManager.updateViewLayout(bar, pParams)
+                        } catch (_: Exception) {
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val wasDragging = dragging
+                    dragging = false
+                    wasDragging
+                }
+                else -> false
+            }
+        }
+
+        pocketBarParams = pParams
+        pocketBarWindow = bar
+        refreshPocketButtons()
+        windowManager.addView(bar, pParams)
+    }
+        private fun showRingSizeBar() {
+        removeRingSizeBar()
+
+        val rParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayTypeFlag(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.RIGHT
+            x = 18
+            y = 14
+        }
+
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(5, 3, 5, 3)
+            background = makePillBg(0xCC14181E.toInt(), 8f)
+        }
+
+        val minusBtn = Button(this).apply {
+            text = "G-"
+            textSize = 8f
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
+            setTextColor(Color.WHITE)
+            setPadding(8, 3, 8, 3)
+            background = makePillBg(0x882E7D32.toInt(), 5f)
+            setOnClickListener { adjustGreenRingSize(-2.5f) }
+        }
+
+        val plusBtn = Button(this).apply {
+            text = "G+"
+            textSize = 8f
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
+            setTextColor(Color.WHITE)
+            setPadding(8, 3, 8, 3)
+            background = makePillBg(0x882E7D32.toInt(), 5f)
+            setOnClickListener { adjustGreenRingSize(2.5f) }
+        }
+
+        bar.addView(minusBtn)
+        bar.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(4, 1) })
+        bar.addView(plusBtn)
+
+        ringSizeBarParams = rParams
+        ringSizeBarWindow = bar
+        windowManager.addView(bar, rParams)
+    }
+
+    private fun adjustGreenRingSize(delta: Float) {
+        greenRingRadius = (greenRingRadius + delta).coerceIn(7f, 36f)
+        aimView.aimRingRadius = greenRingRadius
+        aimKnobView?.customRadius = greenRingRadius
+        aimKnobView?.invalidate()
+        aimView.invalidate()
+    }
+
     private fun toggleMenuPanel() {
         if (isMenuOpen) {
             isMenuOpen = false
@@ -184,7 +359,7 @@ class OverlayService : Service() {
         val panel = menuPanelWindow ?: return
 
         mParams.x = max(0, bParams.x)
-        mParams.y = max(0, bParams.y + 82)
+        mParams.y = max(0, bParams.y + 44)
         try {
             windowManager.updateViewLayout(panel, mParams)
         } catch (_: Exception) {
@@ -204,13 +379,13 @@ class OverlayService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = max(0, bParams.x)
-            y = max(0, bParams.y + 82)
+            y = max(0, bParams.y + 44)
         }
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(12, 10, 12, 10)
-            background = makePillBg(0xDD1B1F24.toInt())
+            setPadding(6, 5, 6, 5)
+            background = makePillBg(0xDD1B1F24.toInt(), 8f)
         }
 
         val row1 = LinearLayout(this).apply {
@@ -218,11 +393,15 @@ class OverlayService : Service() {
         }
 
         val toggleBtn = Button(this).apply {
-            text = if (isPlayMode) "EDIT BORDERS" else "PLAY MODE"
-            textSize = 11f
+            text = if (isPlayMode) "EDIT" else "PLAY"
+            textSize = 8.5f
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
             setTextColor(Color.WHITE)
-            setPadding(18, 8, 18, 8)
-            background = makePillBg(if (isPlayMode) 0xEEDD6600.toInt() else 0xEE009955.toInt())
+            setPadding(10, 4, 10, 4)
+            background = makePillBg(if (isPlayMode) 0xEEDD6600.toInt() else 0xEE009955.toInt(), 6f)
             setOnClickListener {
                 if (isPlayMode) enterEditMode() else enterPlayMode()
             }
@@ -230,68 +409,58 @@ class OverlayService : Service() {
 
         val offBtn = Button(this).apply {
             text = "OFF"
-            textSize = 11f
+            textSize = 8.5f
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
             setTextColor(Color.WHITE)
-            setPadding(18, 8, 18, 8)
-            background = makePillBg(0xEED92626.toInt())
+            setPadding(10, 4, 10, 4)
+            background = makePillBg(0xEED92626.toInt(), 6f)
             setOnClickListener {
                 stopSelf()
             }
         }
 
         row1.addView(toggleBtn)
-        row1.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8, 1) })
+        row1.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(4, 1) })
         row1.addView(offBtn)
 
         val row2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 8, 0, 0)
+            setPadding(0, 4, 0, 0)
         }
 
         val b3 = Button(this).apply {
             text = "3L"
-            textSize = 11f
+            textSize = 8.5f
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
             setTextColor(Color.WHITE)
-            setPadding(24, 8, 24, 8)
+            setPadding(12, 4, 12, 4)
             setOnClickListener { setLineMode(3) }
         }
 
         val b5 = Button(this).apply {
             text = "5L"
-            textSize = 11f
+            textSize = 8.5f
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
             setTextColor(Color.WHITE)
-            setPadding(24, 8, 24, 8)
+            setPadding(12, 4, 12, 4)
             setOnClickListener { setLineMode(5) }
         }
 
         row2.addView(b3)
-        row2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8, 1) })
+        row2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(4, 1) })
         row2.addView(b5)
-
-        val row3 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 8, 0, 0)
-        }
-
-        pocketButtons.clear()
-        for (p in 1..6) {
-            val pBtn = Button(this).apply {
-                text = "P$p"
-                textSize = 10f
-                setTextColor(Color.WHITE)
-                setPadding(12, 6, 12, 6)
-                setOnClickListener { togglePocketAimAssist(p) }
-            }
-            pocketButtons[p] = pBtn
-            row3.addView(pBtn)
-            if (p < 6) {
-                row3.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(4, 1) })
-            }
-        }
 
         container.addView(row1)
         container.addView(row2)
-        container.addView(row3)
 
         modeToggleBtn = toggleBtn
         btn3Line = b3
@@ -300,7 +469,6 @@ class OverlayService : Service() {
         menuPanelWindow = container
 
         refreshLineModeButtons()
-        refreshPocketButtons()
         windowManager.addView(container, mParams)
     }
 
@@ -316,7 +484,8 @@ class OverlayService : Service() {
     private fun refreshPocketButtons() {
         for ((p, btn) in pocketButtons) {
             btn.background = makePillBg(
-                if (selectedPocket == p) 0xFF00AAFF.toInt() else 0x88333A42.toInt()
+                if (selectedPocket == p) 0xFF00AAFF.toInt() else 0x88333A42.toInt(),
+                5f
             )
         }
     }
@@ -329,8 +498,8 @@ class OverlayService : Service() {
     }
 
     private fun refreshLineModeButtons() {
-        btn3Line?.background = makePillBg(if (lineMode == 3) 0xFF00AA55.toInt() else 0x88333A42.toInt())
-        btn5Line?.background = makePillBg(if (lineMode == 5) 0xFFDD5500.toInt() else 0x88333A42.toInt())
+        btn3Line?.background = makePillBg(if (lineMode == 3) 0xFF00AA55.toInt() else 0x88333A42.toInt(), 6f)
+        btn5Line?.background = makePillBg(if (lineMode == 5) 0xFFDD5500.toInt() else 0x88333A42.toInt(), 6f)
     }
 
     private fun enterPlayMode() {
@@ -343,8 +512,8 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
         windowManager.updateViewLayout(rootLayout, params)
 
-        modeToggleBtn?.text = "EDIT BORDERS"
-        modeToggleBtn?.background = makePillBg(0xEEDD6600.toInt())
+        modeToggleBtn?.text = "EDIT"
+        modeToggleBtn?.background = makePillBg(0xEEDD6600.toInt(), 6f)
 
         showLiveAimKnobs()
         syncKnobPositions()
@@ -360,10 +529,20 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
         windowManager.updateViewLayout(rootLayout, params)
 
-        modeToggleBtn?.text = "PLAY MODE"
-        modeToggleBtn?.background = makePillBg(0xEE009955.toInt())
+        modeToggleBtn?.text = "PLAY"
+        modeToggleBtn?.background = makePillBg(0xEE009955.toInt(), 6f)
 
         aimView.invalidate()
+    }
+
+    private fun moveAimBallTo(nx: Float, ny: Float) {
+        val clampedX = nx.coerceIn(aimView.leftWall, aimView.rightWall)
+        val clampedY = ny.coerceIn(aimView.topWall, aimView.bottomWall)
+        aimView.aimX = clampedX
+        aimView.aimY = clampedY
+        aimView.applyAimAssistFromPocket()
+        aimView.invalidate()
+        syncKnobPositions()
     }
 
     private fun syncKnobPositions() {
@@ -389,9 +568,19 @@ class OverlayService : Service() {
                 }
             }
         }
+        aimDimHandleView?.let { dView ->
+            val lp = dView.layoutParams as? WindowManager.LayoutParams
+            if (lp != null) {
+                lp.x = (aimView.aimX + dimHandleOffsetX - knobHalf).toInt()
+                lp.y = (aimView.aimY + dimHandleOffsetY - knobHalf).toInt()
+                try {
+                    windowManager.updateViewLayout(dView, lp)
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
-
-    private fun showLiveAimKnobs() {
+        private fun showLiveAimKnobs() {
         removeLiveAimKnobs()
 
         val cParams = WindowManager.LayoutParams(
@@ -410,6 +599,7 @@ class OverlayService : Service() {
             this,
             Color.WHITE,
             liftOffsetY = fingerLiftY,
+            initialRadius = 15f,
             getStartPos = { PointF(aimView.cueX, aimView.cueY) },
             onMovePoint = { nx, ny ->
                 val clampedX = nx.coerceIn(aimView.leftWall, aimView.rightWall)
@@ -418,12 +608,7 @@ class OverlayService : Service() {
                 aimView.cueY = clampedY
                 aimView.applyAimAssistFromPocket()
                 aimView.invalidate()
-                cParams.x = (aimView.cueX - knobHalf).toInt()
-                cParams.y = (aimView.cueY - knobHalf).toInt()
-                try {
-                    windowManager.updateViewLayout(cueKnobView, cParams)
-                } catch (_: Exception) {
-                }
+                syncKnobPositions()
             }
         )
 
@@ -443,28 +628,41 @@ class OverlayService : Service() {
             this,
             0xFF00FF55.toInt(),
             liftOffsetY = fingerLiftY,
+            initialRadius = greenRingRadius,
             getStartPos = { PointF(aimView.aimX, aimView.aimY) },
             onMovePoint = { nx, ny ->
-                val clampedX = nx.coerceIn(aimView.leftWall, aimView.rightWall)
-                val clampedY = ny.coerceIn(aimView.topWall, aimView.bottomWall)
-                aimView.aimX = clampedX
-                aimView.aimY = clampedY
-                aimView.applyAimAssistFromPocket()
-                aimView.invalidate()
-                aParams.x = (aimView.aimX - knobHalf).toInt()
-                aParams.y = (aimView.aimY - knobHalf).toInt()
-                try {
-                    windowManager.updateViewLayout(aimKnobView, aParams)
-                } catch (_: Exception) {
-                }
+                moveAimBallTo(nx, ny)
+            }
+        )
+
+        val dParams = WindowManager.LayoutParams(
+            knobSize,
+            knobSize,
+            overlayTypeFlag(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (aimView.aimX + dimHandleOffsetX - knobHalf).toInt()
+            y = (aimView.aimY + dimHandleOffsetY - knobHalf).toInt()
+        }
+
+        val dHandle = DimOffsetHandleView(
+            this,
+            offsetXFromBall = dimHandleOffsetX,
+            offsetYFromBall = dimHandleOffsetY,
+            onDragBallTo = { bx, by ->
+                moveAimBallTo(bx, by)
             }
         )
 
         cueKnobView = cKnob
         aimKnobView = aKnob
+        aimDimHandleView = dHandle
 
         windowManager.addView(cKnob, cParams)
         windowManager.addView(aKnob, aParams)
+        windowManager.addView(dHandle, dParams)
     }
 
     private fun removeLiveAimKnobs() {
@@ -480,8 +678,38 @@ class OverlayService : Service() {
             } catch (_: Exception) {
             }
         }
+        aimDimHandleView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
         cueKnobView = null
         aimKnobView = null
+        aimDimHandleView = null
+    }
+
+    private fun removeRingSizeBar() {
+        ringSizeBarWindow?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
+        ringSizeBarWindow = null
+        ringSizeBarParams = null
+    }
+
+    private fun removeSeparatePocketBar() {
+        pocketBarWindow?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
+        pocketBarWindow = null
+        pocketBarParams = null
+        pocketButtons.clear()
     }
 
     private fun removeMenuPanel() {
@@ -496,7 +724,6 @@ class OverlayService : Service() {
         modeToggleBtn = null
         btn3Line = null
         btn5Line = null
-        pocketButtons.clear()
     }
 
     private fun removeSonoBhaiButton() {
@@ -514,6 +741,8 @@ class OverlayService : Service() {
         super.onDestroy()
         isMenuOpen = false
         removeMenuPanel()
+        removeRingSizeBar()
+        removeSeparatePocketBar()
         removeSonoBhaiButton()
         removeLiveAimKnobs()
         if (::rootLayout.isInitialized) {
@@ -528,17 +757,19 @@ class OverlayService : Service() {
         context: Context,
         private val ringColor: Int,
         private val liftOffsetY: Float,
+        initialRadius: Float,
         private val getStartPos: () -> PointF,
         private val onMovePoint: (Float, Float) -> Unit
     ) : View(context) {
 
+        var customRadius: Float = initialRadius
         private var offsetX = 0f
         private var offsetY = 0f
 
         private val ringPaint = Paint().apply {
             color = ringColor
             style = Paint.Style.STROKE
-            strokeWidth = 5f
+            strokeWidth = 3.5f
             isAntiAlias = true
         }
 
@@ -552,9 +783,9 @@ class OverlayService : Service() {
             super.onDraw(canvas)
             val cx = width * 0.5f
             val cy = height * 0.5f
-            val r = minOf(cx, cy) * 0.52f
+            val r = customRadius.coerceIn(6f, minOf(cx, cy) - 4f)
             canvas.drawCircle(cx, cy, r, ringPaint)
-            canvas.drawCircle(cx, cy, 3f, centerDotPaint)
+            canvas.drawCircle(cx, cy, 2f, centerDotPaint)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -573,11 +804,63 @@ class OverlayService : Service() {
             return super.onTouchEvent(event)
         }
     }
+
+    inner class DimOffsetHandleView(
+        context: Context,
+        private val offsetXFromBall: Float,
+        private val offsetYFromBall: Float,
+        private val onDragBallTo: (Float, Float) -> Unit
+    ) : View(context) {
+
+        private var grabDeltaX = 0f
+        private var grabDeltaY = 0f
+
+        private val dimRingPaint = Paint().apply {
+            color = 0x6655E888.toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            isAntiAlias = true
+        }
+
+        private val dimFillPaint = Paint().apply {
+            color = 0x2255E888.toInt()
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val cx = width * 0.5f
+            val cy = height * 0.5f
+            canvas.drawCircle(cx, cy, 15f, dimFillPaint)
+            canvas.drawCircle(cx, cy, 15f, dimRingPaint)
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val currentHandleX = aimView.aimX + offsetXFromBall
+                    val currentHandleY = aimView.aimY + offsetYFromBall
+                    grabDeltaX = event.rawX - currentHandleX
+                    grabDeltaY = event.rawY - currentHandleY
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val newHandleX = event.rawX - grabDeltaX
+                    val newHandleY = event.rawY - grabDeltaY
+                    onDragBallTo(newHandleX - offsetXFromBall, newHandleY - offsetYFromBall)
+                    return true
+                }
+            }
+            return super.onTouchEvent(event)
+        }
+    }
         inner class PoolAimView(context: Context) : View(context) {
 
         private var initialized = false
         var lineCountSetting = 3
         var assistPocket: Int? = null
+        var aimRingRadius = 16f
 
         var leftWall = 100f
         var topWall = 250f
@@ -708,7 +991,7 @@ class OverlayService : Service() {
             val dist = hypot(dx, dy)
             if (dist < 1f) return
 
-            val ballRadius = 18f
+            val ballRadius = max(10f, aimRingRadius)
             val ux = dx / dist
             val uy = dy / dist
 
@@ -754,13 +1037,13 @@ class OverlayService : Service() {
             drawReflectionsFromAim(canvas, aimX, aimY, aimX - cueX, aimY - cueY, bounceCount)
 
             if (!isPlayMode) {
-                drawRingHandle(canvas, cueX, cueY, 16f, Color.WHITE)
-                drawRingHandle(canvas, aimX, aimY, 16f, 0xFF00FF55.toInt())
+                drawRingHandle(canvas, cueX, cueY, 15f, Color.WHITE)
+                drawRingHandle(canvas, aimX, aimY, aimRingRadius, 0xFF00FF55.toInt())
 
-                drawRingHandle(canvas, leftWall, topWall, 18f, 0xFF0088FF.toInt())
-                drawRingHandle(canvas, rightWall, topWall, 18f, 0xFF0088FF.toInt())
-                drawRingHandle(canvas, leftWall, bottomWall, 18f, 0xFF0088FF.toInt())
-                drawRingHandle(canvas, rightWall, bottomWall, 18f, 0xFF0088FF.toInt())
+                drawRingHandle(canvas, leftWall, topWall, 16f, 0xFF0088FF.toInt())
+                drawRingHandle(canvas, rightWall, topWall, 16f, 0xFF0088FF.toInt())
+                drawRingHandle(canvas, leftWall, bottomWall, 16f, 0xFF0088FF.toInt())
+                drawRingHandle(canvas, rightWall, bottomWall, 16f, 0xFF0088FF.toInt())
             }
         }
 
